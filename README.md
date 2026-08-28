@@ -64,7 +64,7 @@ current page, clamping it only if the new document is shorter.
 | `PageUp`, `Ctrl-u` | Previous page immediately |
 | `g`, `Home` | First page |
 | `G`, `End` | Last page |
-| `+`, `=` | Zoom in |
+| `+`, `=` | Zoom in (up to 400%) |
 | `-` | Zoom out |
 | `0` | Fit to window |
 | `w` | Fit page width to pane |
@@ -87,7 +87,9 @@ compatible multiplexers that do not preserve identifying environment variables.
 
 In zellij, unreliable outer-window pixel reports are ignored and a HiDPI-oriented
 16x32 pixel cell estimate is applied to the pane's actual rows and columns.
-Fixed-zoom renders are capped at twice the pane dimensions.
+Fixed-zoom renders are capped at four times the pane dimensions in zellij to
+prevent a very large full-page transfer from stalling every pane. The interactive
+zoom steps are 25, 50, 75, 100, 125, 150, 200, 250, 300, and 400 percent.
 Resize events are debounced. The current page has render priority; previous/next
 prefetch begins after 180 ms of input idle. Replaced Kitty images are deleted with
 data-freeing semantics so terminal-side image storage does not accumulate.

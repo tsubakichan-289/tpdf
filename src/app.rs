@@ -5,7 +5,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use crate::pdf::renderer::Bitmap;
 use crate::terminal::size::TerminalSize;
 
-pub const ZOOM_STEPS: &[u16] = &[25, 50, 75, 100, 125, 150, 200];
+pub const ZOOM_STEPS: &[u16] = &[25, 50, 75, 100, 125, 150, 200, 250, 300, 400];
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum ZoomMode {
@@ -401,6 +401,19 @@ mod tests {
         assert_eq!(zoom, ZoomMode::Fixed(100));
         zoom.zoom_out(82);
         assert_eq!(zoom, ZoomMode::Fixed(75));
+    }
+
+    #[test]
+    fn zoom_can_advance_beyond_two_hundred_percent() {
+        let mut zoom = ZoomMode::Fixed(200);
+        zoom.zoom_in(100);
+        assert_eq!(zoom, ZoomMode::Fixed(250));
+        zoom.zoom_in(100);
+        assert_eq!(zoom, ZoomMode::Fixed(300));
+        zoom.zoom_in(100);
+        assert_eq!(zoom, ZoomMode::Fixed(400));
+        zoom.zoom_in(100);
+        assert_eq!(zoom, ZoomMode::Fixed(400));
     }
 
     #[test]

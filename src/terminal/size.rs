@@ -98,8 +98,11 @@ impl TerminalSize {
             return (width, height);
         }
         let (view_width, view_height) = self.viewport_pixels();
-        let maximum_width = view_width.saturating_mul(2).max(1);
-        let maximum_height = view_height.saturating_mul(2).max(1);
+        // Keep a finite ceiling in multiplexers, where transmitting a very
+        // large full-page bitmap stalls every pane. Four viewports still lets
+        // the keyboard zoom steps reach 400% on typical document panes.
+        let maximum_width = view_width.saturating_mul(4).max(1);
+        let maximum_height = view_height.saturating_mul(4).max(1);
         let scale = (maximum_width as f64 / width.max(1) as f64)
             .min(maximum_height as f64 / height.max(1) as f64)
             .min(1.0);
@@ -117,7 +120,7 @@ mod tests {
     #[test]
     fn zellij_caps_large_rasters_and_preserves_aspect_ratio() {
         let size = TerminalSize::new_zellij(80, 24, 960, 576);
-        assert_eq!(size.cap_render_dimensions(4000, 2000), (1920, 960));
+        assert_eq!(size.cap_render_dimensions(8000, 4000), (3840, 1920));
     }
 
     #[test]
