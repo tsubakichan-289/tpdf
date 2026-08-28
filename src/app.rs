@@ -10,13 +10,14 @@ pub const ZOOM_STEPS: &[u16] = &[25, 50, 75, 100, 125, 150, 200];
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum ZoomMode {
     Fit,
+    FitWidth,
     Fixed(u16),
 }
 
 impl ZoomMode {
     pub fn label(self, fit_percent: u16) -> u16 {
         match self {
-            Self::Fit => fit_percent,
+            Self::Fit | Self::FitWidth => fit_percent,
             Self::Fixed(percent) => percent,
         }
     }
@@ -147,7 +148,11 @@ impl App {
             self.terminal.viewport_pixels(),
             self.zoom,
         );
-        let (width, height) = self.terminal.cap_render_dimensions(width, height);
+        let (width, height) = if matches!(self.zoom, ZoomMode::Fixed(_)) {
+            self.terminal.cap_render_dimensions(width, height)
+        } else {
+            (width, height)
+        };
         (width, height, fit_percent)
     }
 
@@ -213,12 +218,14 @@ impl App {
             (KeyCode::Char('g'), false) | (KeyCode::Home, _) => {
                 self.current_page = 0;
                 self.offset_x = 0;
+                self.offset_y = 0;
                 self.dirty = true;
                 Action::Render
             }
             (KeyCode::Char('G'), false) | (KeyCode::End, _) => {
                 self.current_page = self.page_count.saturating_sub(1);
                 self.offset_x = 0;
+                self.offset_y = 0;
                 self.dirty = true;
                 Action::Render
             }
@@ -226,6 +233,7 @@ impl App {
                 let fit = self.render_dimensions().2;
                 self.zoom.zoom_in(fit);
                 self.offset_x = 0;
+                self.offset_y = 0;
                 self.dirty = true;
                 Action::Render
             }
@@ -233,6 +241,14 @@ impl App {
                 let fit = self.render_dimensions().2;
                 self.zoom.zoom_out(fit);
                 self.offset_x = 0;
+                self.offset_y = 0;
+                self.dirty = true;
+                Action::Render
+            }
+            (KeyCode::Char('w'), false) => {
+                self.zoom = ZoomMode::FitWidth;
+                self.offset_x = 0;
+                self.offset_y = 0;
                 self.dirty = true;
                 Action::Render
             }
@@ -244,12 +260,22 @@ impl App {
                 Action::Render
             }
             (KeyCode::Char('h'), false) | (KeyCode::Char('h'), true) => {
-                self.offset_x = self.offset_x.saturating_sub(self.scroll_step());
+                self.offset_x = self.offset_x.saturating_sub(self.scroll_step_x());
                 self.dirty = true;
                 Action::Redraw
             }
             (KeyCode::Char('l'), false) => {
-                self.offset_x = (self.offset_x + self.scroll_step()).min(self.max_offset_x());
+                self.offset_x = (self.offset_x + self.scroll_step_x()).min(self.max_offset_x());
+                self.dirty = true;
+                Action::Redraw
+            }
+            (KeyCode::Char('J'), false) | (KeyCode::Char('e'), true) => {
+                self.offset_y = (self.offset_y + self.scroll_step_y()).min(self.max_offset_y());
+                self.dirty = true;
+                Action::Redraw
+            }
+            (KeyCode::Char('K'), false) | (KeyCode::Char('y'), true) => {
+                self.offset_y = self.offset_y.saturating_sub(self.scroll_step_y());
                 self.dirty = true;
                 Action::Redraw
             }
@@ -261,8 +287,12 @@ impl App {
         }
     }
 
-    fn scroll_step(&self) -> u32 {
+    fn scroll_step_x(&self) -> u32 {
         (self.terminal.viewport_pixels().0 / 8).max(1)
+    }
+
+    fn scroll_step_y(&self) -> u32 {
+        (self.terminal.viewport_pixels().1 / 8).max(1)
     }
 
     fn max_offset_x(&self) -> u32 {
@@ -271,13 +301,15 @@ impl App {
             .saturating_sub(self.terminal.viewport_pixels().0)
     }
 
+    fn max_offset_y(&self) -> u32 {
+        self.render_dimensions()
+            .1
+            .saturating_sub(self.terminal.viewport_pixels().1)
+    }
+
     fn clamp_offsets(&mut self) {
         self.offset_x = self.offset_x.min(self.max_offset_x());
-        self.offset_y = self.offset_y.min(
-            self.render_dimensions()
-                .1
-                .saturating_sub(self.terminal.viewport_pixels().1),
-        );
+        self.offset_y = self.offset_y.min(self.max_offset_y());
     }
 }
 
@@ -295,15 +327,19 @@ pub fn render_dimensions(
     let fit_scale = (view_w as f32 / page_w)
         .min(view_h as f32 / page_h)
         .max(0.01);
-    let fit_percent = (fit_scale * 75.0).round().clamp(1.0, u16::MAX as f32) as u16;
-    let scale = match zoom {
-        ZoomMode::Fit => fit_scale,
-        ZoomMode::Fixed(percent) => (96.0 / 72.0) * f32::from(percent) / 100.0,
+    let width_scale = (view_w as f32 / page_w).max(0.01);
+    let (scale, displayed_percent) = match zoom {
+        ZoomMode::Fit => (fit_scale, fit_scale * 75.0),
+        ZoomMode::FitWidth => (width_scale, width_scale * 75.0),
+        ZoomMode::Fixed(percent) => (
+            (96.0 / 72.0) * f32::from(percent) / 100.0,
+            f32::from(percent),
+        ),
     };
     (
         (page_w * scale).round().max(1.0) as u32,
         (page_h * scale).round().max(1.0) as u32,
-        fit_percent,
+        displayed_percent.round().clamp(1.0, u16::MAX as f32) as u16,
     )
 }
 
@@ -369,6 +405,49 @@ mod tests {
     fn fit_to_window_preserves_aspect_ratio() {
         let (w, h, _) = render_dimensions((600.0, 800.0), (1000, 600), ZoomMode::Fit);
         assert_eq!((w, h), (450, 600));
+    }
+
+    #[test]
+    fn fit_width_matches_viewport_and_preserves_aspect_ratio() {
+        let (width, height, percent) =
+            render_dimensions((600.0, 800.0), (1000, 600), ZoomMode::FitWidth);
+        assert_eq!((width, height), (1000, 1333));
+        assert_eq!(percent, 125);
+    }
+
+    #[test]
+    fn width_mode_and_vertical_scroll_keys_work() {
+        let mut app = app();
+        app.zoom = ZoomMode::Fixed(100);
+        assert_eq!(
+            app.handle_key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE)),
+            Action::Render
+        );
+        assert_eq!(app.zoom, ZoomMode::FitWidth);
+        assert_eq!(app.render_dimensions().0, app.terminal.viewport_pixels().0);
+
+        assert_eq!(
+            app.handle_key(KeyEvent::new(KeyCode::Char('J'), KeyModifiers::SHIFT)),
+            Action::Redraw
+        );
+        assert!(app.offset_y > 0);
+        let scrolled = app.offset_y;
+        assert_eq!(
+            app.handle_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::CONTROL)),
+            Action::Redraw
+        );
+        assert!(app.offset_y < scrolled);
+    }
+
+    #[test]
+    fn vertical_scroll_clamps_to_rendered_page() {
+        let mut app = app();
+        app.zoom = ZoomMode::FitWidth;
+        for _ in 0..100 {
+            app.handle_key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::CONTROL));
+        }
+        assert_eq!(app.offset_y, app.max_offset_y());
+        assert!(app.offset_y > 0);
     }
 
     #[test]

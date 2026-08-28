@@ -65,8 +65,11 @@ current page, clamping it only if the new document is shorter.
 | `+`, `=` | Zoom in |
 | `-` | Zoom out |
 | `0` | Fit to window |
+| `w` | Fit page width to pane |
 | `h`, `Ctrl-h` | Scroll left |
 | `l` | Scroll right |
+| `J`, `Ctrl-e` | Scroll down |
+| `K`, `Ctrl-y` | Scroll up |
 | `r`, `Ctrl-l` | Force redraw |
 | `q`, `Ctrl-c` | Quit |
 
@@ -118,8 +121,6 @@ generation and render dimensions.
 - PDFium must be installed separately and its API build must be compatible with
   the `pdfium_latest` feature selected in `Cargo.toml`.
 - Password-protected PDFs are not currently supported.
-- Vertical scrolling is not exposed; at fixed zoom, an over-height page is shown
-  from its top edge.
 - Kitty graphics support is inferred from the environment rather than queried.
 - Pages with different dimensions can require one corrective render after page
   navigation.

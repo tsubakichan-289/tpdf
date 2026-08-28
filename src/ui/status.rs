@@ -3,7 +3,7 @@ use std::path::Path;
 
 use crossterm::{QueueableCommand, cursor, style, terminal};
 
-use crate::app::App;
+use crate::app::{App, ZoomMode};
 
 pub fn draw<W: Write>(out: &mut W, app: &App, path: &Path) -> io::Result<()> {
     let filename = path
@@ -11,9 +11,14 @@ pub fn draw<W: Write>(out: &mut W, app: &App, path: &Path) -> io::Result<()> {
         .and_then(|name| name.to_str())
         .unwrap_or("<pdf>");
     let zoom = app.zoom.label(app.render_dimensions().2);
+    let zoom = match app.zoom {
+        ZoomMode::Fit => format!("{zoom}% fit"),
+        ZoomMode::FitWidth => format!("{zoom}% width"),
+        ZoomMode::Fixed(_) => format!("{zoom}%"),
+    };
     let message = app.status.as_deref().unwrap_or("");
     let text = format!(
-        " {filename}    {} / {}    {zoom}%    {message}",
+        " {filename}    {} / {}    {zoom}    {message}",
         app.current_page.saturating_add(1),
         app.page_count
     );
