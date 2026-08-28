@@ -1,29 +1,41 @@
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use clap::Parser;
 use crossterm::event::Event;
-use tpdf::app::{Action, App, RenderKey, ZoomMode};
+use tpdf::app::{Action, App, ZoomMode};
 use tpdf::event::{AppEvent, spawn_terminal_reader};
-use tpdf::pdf::renderer::{self, RenderEvent, RenderRequest};
+use tpdf::pdf::renderer::{self, RenderEvent, RenderHandle, RenderKind, RenderRequest};
 use tpdf::terminal::session::TerminalSession;
 use tpdf::terminal::size::TerminalSize;
 use tpdf::{ui, watcher::PdfWatcher};
 
-const DEBOUNCE: Duration = Duration::from_millis(75);
+const FILE_DEBOUNCE: Duration = Duration::from_millis(75);
+const RESIZE_DEBOUNCE: Duration = Duration::from_millis(50);
+const PREFETCH_IDLE: Duration = Duration::from_millis(180);
 const RETRY_DELAYS: &[Duration] = &[
     Duration::from_millis(50),
     Duration::from_millis(100),
     Duration::from_millis(200),
 ];
 
-#[derive(Clone, Copy)]
-enum TimerAction {
-    Reload,
-    Retry,
+#[derive(Default)]
+struct Deadlines {
+    reload: Option<Instant>,
+    retry: Option<Instant>,
+    resize: Option<Instant>,
+    prefetch: Option<Instant>,
+}
+
+impl Deadlines {
+    fn next(&self) -> Option<Instant> {
+        [self.reload, self.retry, self.resize, self.prefetch]
+            .into_iter()
+            .flatten()
+            .min()
+    }
 }
 
 #[derive(Debug, Parser)]
@@ -74,8 +86,8 @@ fn main() -> Result<()> {
     }
 
     let (event_tx, event_rx) = mpsc::channel();
-    let render_tx = renderer::spawn(event_tx.clone());
-    bootstrap(&path, &mut app, &render_tx, &event_rx)?;
+    let renderer = renderer::spawn(event_tx.clone());
+    bootstrap(&path, &mut app, &renderer, &event_rx)?;
 
     let _watcher = if cli.no_watch {
         None
@@ -85,55 +97,70 @@ fn main() -> Result<()> {
     let mut terminal = TerminalSession::enter().context("could not initialize terminal")?;
     spawn_terminal_reader(event_tx);
 
-    let mut in_flight = HashSet::new();
-    let mut timer = None;
+    let mut deadlines = Deadlines {
+        prefetch: Some(Instant::now() + PREFETCH_IDLE),
+        ..Deadlines::default()
+    };
     let mut retry_index = 0;
-    request_neighbors(&path, &app, &render_tx, &mut in_flight);
-    redraw(&mut terminal, &mut app, &path)?;
+    redraw(&mut terminal, &mut app, &path, false)?;
 
     loop {
-        let event = receive_until_deadline(&event_rx, timer.map(|(at, _)| at))?;
+        let event = receive_until_deadline(&event_rx, deadlines.next())?;
         let Some(event) = event else {
-            let action = timer.take().expect("expired timer has an action").1;
-            if matches!(action, TimerAction::Reload) {
-                app.reload();
-                retry_index = 0;
-                in_flight.clear();
-            }
-            request_page(&path, &app, app.current_page, &render_tx, &mut in_flight);
-            redraw(&mut terminal, &mut app, &path)?;
+            process_timers(
+                &path,
+                &mut app,
+                &renderer,
+                &mut terminal,
+                &mut deadlines,
+                &mut retry_index,
+            )?;
             continue;
         };
 
         match event {
-            AppEvent::Terminal(Event::Key(key)) => match app.handle_key(key) {
-                Action::Quit => break,
-                Action::Render => {
-                    if app.current_bitmap().is_none() {
-                        app.status = Some("rendering…".into());
-                    }
-                    request_page(&path, &app, app.current_page, &render_tx, &mut in_flight);
-                    request_neighbors(&path, &app, &render_tx, &mut in_flight);
-                    redraw(&mut terminal, &mut app, &path)?;
+            AppEvent::Terminal(Event::Key(key)) => {
+                if deadlines.prefetch.is_some() {
+                    deadlines.prefetch = Some(Instant::now() + PREFETCH_IDLE);
                 }
-                Action::Redraw => redraw(&mut terminal, &mut app, &path)?,
-                Action::None => {}
-            },
+                match app.handle_key(key) {
+                    Action::Quit => break,
+                    Action::Render => {
+                        if app.current_bitmap().is_none() {
+                            app.status = Some("rendering…".into());
+                            request_page(
+                                &path,
+                                &app,
+                                app.current_page,
+                                RenderKind::Current,
+                                &renderer,
+                            );
+                        }
+                        deadlines.prefetch = Some(Instant::now() + PREFETCH_IDLE);
+                        redraw(&mut terminal, &mut app, &path, false)?;
+                    }
+                    Action::Redraw => redraw(&mut terminal, &mut app, &path, false)?,
+                    Action::ForceRedraw => redraw(&mut terminal, &mut app, &path, true)?,
+                    Action::None => {}
+                }
+            }
             AppEvent::Terminal(Event::Resize(_, _)) => {
                 if let Ok(size) = TerminalSize::detect() {
                     app.resize(size);
-                    in_flight.clear();
-                    request_page(&path, &app, app.current_page, &render_tx, &mut in_flight);
-                    redraw(&mut terminal, &mut app, &path)?;
+                    deadlines.resize = Some(Instant::now() + RESIZE_DEBOUNCE);
+                    deadlines.prefetch = None;
+                    redraw(&mut terminal, &mut app, &path, false)?;
                 }
             }
             AppEvent::Terminal(_) => {}
             AppEvent::FileChanged => {
-                timer = Some((Instant::now() + DEBOUNCE, TimerAction::Reload));
+                deadlines.reload = Some(Instant::now() + FILE_DEBOUNCE);
+                deadlines.retry = None;
+                deadlines.prefetch = None;
             }
             AppEvent::WatchError(message) => {
                 app.status = Some(format!("watch: {message}"));
-                redraw(&mut terminal, &mut app, &path)?;
+                redraw(&mut terminal, &mut app, &path, false)?;
             }
             AppEvent::Render(render_event) => match render_event {
                 RenderEvent::Ready {
@@ -142,7 +169,6 @@ fn main() -> Result<()> {
                     page_count,
                     page_size_points,
                 } => {
-                    in_flight.remove(&key);
                     if key.generation != app.generation {
                         continue;
                     }
@@ -150,7 +176,13 @@ fn main() -> Result<()> {
                         app.set_document(page_count, page_size_points);
                         let expected = app.render_key(app.current_page);
                         if key != expected {
-                            request_page(&path, &app, app.current_page, &render_tx, &mut in_flight);
+                            request_page(
+                                &path,
+                                &app,
+                                app.current_page,
+                                RenderKind::Current,
+                                &renderer,
+                            );
                             continue;
                         }
                     } else {
@@ -159,19 +191,18 @@ fn main() -> Result<()> {
                     app.insert_bitmap(key, bitmap);
                     if key.page == app.current_page {
                         retry_index = 0;
-                        request_neighbors(&path, &app, &render_tx, &mut in_flight);
-                        redraw(&mut terminal, &mut app, &path)?;
+                        deadlines.prefetch = Some(Instant::now() + PREFETCH_IDLE);
+                        redraw(&mut terminal, &mut app, &path, false)?;
                     }
                 }
                 RenderEvent::Failed { key, message } if key.generation == app.generation => {
-                    in_flight.remove(&key);
                     if key.page == app.current_page {
                         app.status = Some(format!("reload failed: {message}"));
                         if let Some(delay) = RETRY_DELAYS.get(retry_index) {
-                            timer = Some((Instant::now() + *delay, TimerAction::Retry));
+                            deadlines.retry = Some(Instant::now() + *delay);
                             retry_index += 1;
                         }
-                        redraw(&mut terminal, &mut app, &path)?;
+                        redraw(&mut terminal, &mut app, &path, false)?;
                     }
                 }
                 RenderEvent::Failed { .. } => {}
@@ -181,20 +212,50 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+fn process_timers(
+    path: &Path,
+    app: &mut App,
+    renderer: &RenderHandle,
+    terminal: &mut TerminalSession,
+    deadlines: &mut Deadlines,
+    retry_index: &mut usize,
+) -> Result<()> {
+    let now = Instant::now();
+    let reload_due = deadlines.reload.is_some_and(|deadline| deadline <= now);
+    let resize_due = deadlines.resize.is_some_and(|deadline| deadline <= now);
+    let retry_due = deadlines.retry.is_some_and(|deadline| deadline <= now);
+    let prefetch_due = deadlines.prefetch.is_some_and(|deadline| deadline <= now);
+
+    if reload_due {
+        deadlines.reload = None;
+        app.reload();
+        *retry_index = 0;
+    }
+    if resize_due {
+        deadlines.resize = None;
+    }
+    if retry_due {
+        deadlines.retry = None;
+    }
+    if reload_due || resize_due || retry_due {
+        request_page(path, app, app.current_page, RenderKind::Current, renderer);
+        redraw(terminal, app, path, false)?;
+    }
+    if prefetch_due {
+        deadlines.prefetch = None;
+        request_neighbors(path, app, renderer);
+    }
+    Ok(())
+}
+
 fn bootstrap(
     path: &Path,
     app: &mut App,
-    render_tx: &Sender<RenderRequest>,
+    renderer: &RenderHandle,
     event_rx: &Receiver<AppEvent>,
 ) -> Result<()> {
     loop {
-        let key = app.render_key(app.current_page);
-        render_tx
-            .send(RenderRequest {
-                path: path.to_path_buf(),
-                key,
-            })
-            .context("renderer stopped")?;
+        request_page(path, app, app.current_page, RenderKind::Current, renderer);
         match event_rx.recv().context("renderer stopped during startup")? {
             AppEvent::Render(RenderEvent::Ready {
                 key,
@@ -215,40 +276,52 @@ fn bootstrap(
     }
 }
 
-fn request_page(
-    path: &Path,
-    app: &App,
-    page: usize,
-    tx: &Sender<RenderRequest>,
-    in_flight: &mut HashSet<RenderKey>,
-) {
-    let key = app.render_key(page);
-    if app.has_bitmap(page) || !in_flight.insert(key) {
+fn request_page(path: &Path, app: &App, page: usize, kind: RenderKind, renderer: &RenderHandle) {
+    if app.has_bitmap(page) {
         return;
     }
-    let _ = tx.send(RenderRequest {
+    renderer.request(RenderRequest {
         path: path.to_path_buf(),
-        key,
+        key: app.render_key(page),
+        kind,
     });
 }
 
-fn request_neighbors(
-    path: &Path,
-    app: &App,
-    tx: &Sender<RenderRequest>,
-    in_flight: &mut HashSet<RenderKey>,
-) {
+fn request_neighbors(path: &Path, app: &App, renderer: &RenderHandle) {
     if app.current_page > 0 {
-        request_page(path, app, app.current_page - 1, tx, in_flight);
+        request_page(
+            path,
+            app,
+            app.current_page - 1,
+            RenderKind::Prefetch,
+            renderer,
+        );
     }
     if app.current_page + 1 < app.page_count {
-        request_page(path, app, app.current_page + 1, tx, in_flight);
+        request_page(
+            path,
+            app,
+            app.current_page + 1,
+            RenderKind::Prefetch,
+            renderer,
+        );
     }
 }
 
-fn redraw(terminal: &mut TerminalSession, app: &mut App, path: &Path) -> Result<()> {
-    if let Some(bitmap) = app.current_bitmap().cloned() {
-        terminal.draw_image(&bitmap, app.terminal, app.offset_x, app.offset_y)?;
+fn redraw(
+    terminal: &mut TerminalSession,
+    app: &mut App,
+    path: &Path,
+    force_transmit: bool,
+) -> Result<()> {
+    if let Some(bitmap) = app.current_bitmap() {
+        terminal.draw_image(
+            bitmap,
+            app.terminal,
+            app.offset_x,
+            app.offset_y,
+            force_transmit,
+        )?;
     }
     ui::status::draw(terminal.stdout(), app, path)?;
     app.dirty = false;
@@ -284,7 +357,8 @@ fn ensure_terminal_support(force: bool) -> Result<()> {
         || term_program.contains("wezterm")
         || term.contains("ghostty")
         || term.contains("kitty")
-        || std::env::var_os("KITTY_WINDOW_ID").is_some();
+        || std::env::var_os("KITTY_WINDOW_ID").is_some()
+        || std::env::var_os("ZELLIJ").is_some();
     if !compatible {
         bail!(
             "no Kitty graphics capable terminal detected (tpdf is intended for Ghostty; use --force to override)"

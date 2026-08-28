@@ -59,6 +59,7 @@ pub enum Action {
     Quit,
     Render,
     Redraw,
+    ForceRedraw,
 }
 
 #[derive(Debug)]
@@ -141,11 +142,13 @@ impl App {
     }
 
     pub fn render_dimensions(&self) -> (u32, u32, u16) {
-        render_dimensions(
+        let (width, height, fit_percent) = render_dimensions(
             self.page_size_points,
             self.terminal.viewport_pixels(),
             self.zoom,
-        )
+        );
+        let (width, height) = self.terminal.cap_render_dimensions(width, height);
+        (width, height, fit_percent)
     }
 
     pub fn render_key(&self, page: usize) -> RenderKey {
@@ -172,7 +175,13 @@ impl App {
         }
         self.cache.insert(key, bitmap);
         let current = self.current_page;
-        self.cache.retain(|key, _| key.page.abs_diff(current) <= 1);
+        let expected = self.render_key(current);
+        self.cache.retain(|key, _| {
+            key.generation == expected.generation
+                && key.width == expected.width
+                && key.height == expected.height
+                && key.page.abs_diff(current) <= 1
+        });
         if key.page == current {
             self.status = None;
             self.clamp_offsets();
@@ -246,7 +255,7 @@ impl App {
             }
             (KeyCode::Char('r'), false) | (KeyCode::Char('l'), true) => {
                 self.dirty = true;
-                Action::Redraw
+                Action::ForceRedraw
             }
             _ => Action::None,
         }
@@ -348,14 +357,8 @@ mod tests {
     fn reload_advances_generation_and_invalidates_bitmap_cache() {
         let mut app = app();
         let key = app.render_key(0);
-        app.insert_bitmap(
-            key,
-            Bitmap {
-                width: key.width,
-                height: key.height,
-                rgba: Vec::new(),
-            },
-        );
+        let bitmap = crate::pdf::renderer::prepare_bitmap(1, 1, vec![255; 4]).unwrap();
+        app.insert_bitmap(key, bitmap);
         assert!(app.current_bitmap().is_some());
         app.reload();
         assert_eq!(app.generation, 1);

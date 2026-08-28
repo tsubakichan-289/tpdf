@@ -1,6 +1,6 @@
 [package]
 name = "tpdf"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "A fast terminal PDF viewer for Ghostty using the Kitty graphics protocol"
 license = "MIT"
@@ -10,6 +10,7 @@ anyhow = "1.0"
 base64 = "0.22"
 clap = { version = "4.5", features = ["derive"] }
 crossterm = "0.29"
+flate2 = "1.1"
 notify = "8.2"
 pdfium-render = { version = "0.9.3", default-features = false, features = ["pdfium_latest"] }
 

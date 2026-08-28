@@ -1,9 +1,9 @@
 # tpdf
 
 `tpdf` is a small Rust PDF viewer that renders directly inside Ghostty. PDFium
-rasterizes each page to RGBA pixels in a worker thread; `tpdf` sends those pixels
-to the terminal with the Kitty graphics protocol. It does not open a GUI window,
-run `pdftoppm`, or create temporary PNG files.
+rasterizes each page in a worker thread; `tpdf` sends a zlib-compressed RGB or
+RGBA bitmap to the terminal with the Kitty graphics protocol. It does not open a
+GUI window, run `pdftoppm`, or create temporary PNG files.
 
 ## Install
 
@@ -72,12 +72,27 @@ current page, clamping it only if the new document is shorter.
 
 ## Ghostty and the Kitty graphics protocol
 
-`tpdf` transmits in-memory 32-bit RGBA data in protocol-compliant base64 chunks.
-A completed image is placed before the previous image is deleted, reducing white
-flashes during reloads. Terminal pixel dimensions are read on resize and the
+`tpdf` detects fully opaque pages and transmits them as RGB24; pages with alpha
+remain RGBA32. Pixel data is compressed as an RFC 1950 zlib stream before base64
+encoding and protocol-compliant chunking (`o=z`). A completed image is placed
+before the previous image is deleted, reducing white flashes during reloads.
+Unchanged image content is reused, so status updates and horizontal scrolling do
+not retransmit the bitmap. Terminal pixel dimensions are read on resize and the
 current page is rasterized again. Terminals not identifiable as Ghostty, Kitty,
-or WezTerm are rejected; the hidden `--force` flag is available for compatible
-multiplexers that do not preserve identifying environment variables.
+WezTerm, or zellij are rejected; the hidden `--force` flag is available for
+compatible multiplexers that do not preserve identifying environment variables.
+
+In zellij, reported pixel dimensions are bounded by the pane's cell dimensions
+and fixed-zoom renders are capped at twice the pane dimensions. Resize events are
+debounced. The current page has render priority; previous/next prefetch begins
+after 180 ms of input idle.
+
+Set `TPDF_DEBUG_PERF=1` to print rasterization time, pixel format, raw/compressed/
+base64 byte counts, and Kitty write time to stderr:
+
+```bash
+TPDF_DEBUG_PERF=1 tpdf document.pdf
+```
 
 The terminal/multiplexer must pass Kitty graphics escape sequences through. A
 zellij or tmux version/configuration that does not support the protocol cannot be

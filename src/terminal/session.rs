@@ -39,9 +39,16 @@ impl TerminalSession {
         size: crate::terminal::size::TerminalSize,
         offset_x: u32,
         offset_y: u32,
+        force_transmit: bool,
     ) -> io::Result<()> {
-        self.kitty
-            .draw(&mut self.stdout, bitmap, size, offset_x, offset_y)
+        self.kitty.draw(
+            &mut self.stdout,
+            bitmap,
+            size,
+            offset_x,
+            offset_y,
+            force_transmit,
+        )
     }
 
     fn restore(&mut self) {
