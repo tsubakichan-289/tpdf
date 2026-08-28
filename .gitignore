@@ -1,0 +1,8 @@
+/target/
+/libpdfium/
+/LibPDFium/
+*.so
+*.dylib
+*.dll
+*.tgz
+
