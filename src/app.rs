@@ -552,6 +552,27 @@ mod tests {
     }
 
     #[test]
+    fn zellij_vertical_arrows_scroll_a_zoomed_page() {
+        let mut app = App::new(TerminalSize::new_zellij(120, 36, 1920, 1152));
+        app.set_document(10, (600.0, 800.0));
+        app.zoom = ZoomMode::Fixed(250);
+
+        assert!(app.max_offset_y() > 0);
+        assert_eq!(
+            app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)),
+            Action::Redraw
+        );
+        assert!(app.offset_y > 0);
+        assert_eq!(app.current_page, 0);
+
+        assert_eq!(
+            app.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)),
+            Action::Redraw
+        );
+        assert_eq!(app.offset_y, 0);
+    }
+
+    #[test]
     fn resizing_changes_fit_dimensions() {
         let mut app = app();
         assert_eq!(app.render_dimensions().0, 585);

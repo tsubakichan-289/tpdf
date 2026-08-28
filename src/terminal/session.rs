@@ -18,8 +18,11 @@ impl TerminalSession {
         let mut stdout = io::stdout();
         if let Err(error) = stdout
             .execute(EnterAlternateScreen)
+            .and_then(|out| out.execute(terminal::DisableLineWrap))
             .and_then(|out| out.execute(cursor::Hide))
         {
+            let _ = stdout.execute(terminal::EnableLineWrap);
+            let _ = stdout.execute(LeaveAlternateScreen);
             let _ = terminal::disable_raw_mode();
             return Err(error);
         }
@@ -54,6 +57,7 @@ impl TerminalSession {
     fn restore(&mut self) {
         let _ = self.kitty.delete_visible(&mut self.stdout);
         let _ = self.stdout.execute(cursor::Show);
+        let _ = self.stdout.execute(terminal::EnableLineWrap);
         let _ = self.stdout.execute(LeaveAlternateScreen);
         let _ = self.stdout.flush();
         let _ = terminal::disable_raw_mode();
