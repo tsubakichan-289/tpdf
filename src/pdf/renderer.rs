@@ -208,8 +208,10 @@ fn render(pdfium: &Pdfium, request: &RenderRequest) -> Result<RenderEvent> {
     )?;
     if perf_debug_enabled() {
         eprintln!(
-            "[tpdf perf] raster page={} duration_ms={:.2} format={} raw_bytes={} compressed_bytes={} base64_bytes={}",
+            "[tpdf perf] raster page={} width={} height={} duration_ms={:.2} format={} raw_bytes={} compressed_bytes={} base64_bytes={}",
             page_index + 1,
+            prepared.width,
+            prepared.height,
             raster_elapsed.as_secs_f64() * 1000.0,
             prepared.format.kitty_code(),
             prepared.raw_bytes,

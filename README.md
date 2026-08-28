@@ -85,9 +85,9 @@ current page is rasterized again. Terminals not identifiable as Ghostty, Kitty,
 WezTerm, or zellij are rejected; the hidden `--force` flag is available for
 compatible multiplexers that do not preserve identifying environment variables.
 
-In zellij, reported pixel dimensions are normalized against the pane's cell
-dimensions. When zellij does not report pixels, a HiDPI-oriented 16x32 pixel cell
-estimate is used. Fixed-zoom renders are capped at twice the pane dimensions.
+In zellij, unreliable outer-window pixel reports are ignored and a HiDPI-oriented
+16x32 pixel cell estimate is applied to the pane's actual rows and columns.
+Fixed-zoom renders are capped at twice the pane dimensions.
 Resize events are debounced. The current page has render priority; previous/next
 prefetch begins after 180 ms of input idle. Replaced Kitty images are deleted with
 data-freeing semantics so terminal-side image storage does not accumulate.

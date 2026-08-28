@@ -25,11 +25,9 @@ pub fn draw<W: Write>(out: &mut W, app: &App, path: &Path) -> io::Result<()> {
     out.queue(cursor::MoveTo(0, app.terminal.rows.saturating_sub(1)))?
         .queue(style::SetAttribute(style::Attribute::Reverse))?
         .queue(terminal::Clear(terminal::ClearType::CurrentLine))?;
-    write!(
-        out,
-        "{text:.width$}",
-        width = usize::from(app.terminal.columns)
-    )?;
+    let width = usize::from(app.terminal.columns);
+    let text: String = text.chars().take(width).collect();
+    write!(out, "{text:<width$}")?;
     out.queue(style::SetAttribute(style::Attribute::Reset))?;
     out.flush()
 }

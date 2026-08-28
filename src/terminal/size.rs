@@ -51,24 +51,17 @@ impl TerminalSize {
         zellij: bool,
     ) -> Self {
         if zellij {
-            // Zellij may report zero pixels, or outer-window pixels with
-            // pane-local cells. Use a bounded HiDPI cell estimate rather than
-            // the visibly coarse 8x16 fallback.
-            let cell_width = if reported_width == 0 {
-                16
-            } else {
-                (reported_width / columns.max(1)).clamp(12, 24)
-            };
-            let cell_height = if reported_height == 0 {
-                32
-            } else {
-                (reported_height / rows.max(1)).clamp(24, 48)
-            };
+            // Zellij can combine pane-local rows/columns with the outer
+            // Ghostty window's physical HiDPI size. Do not use those reported
+            // pixels: they can overestimate a pane by 1.5-2x and make width-fit
+            // renders stall. A fixed 16x32 raster cell is sharp in Ghostty and
+            // keeps dimensions proportional to the actual pane cell grid.
+            let _ = (reported_width, reported_height);
             Self::new_zellij(
                 columns,
                 rows,
-                columns.saturating_mul(cell_width),
-                rows.saturating_mul(cell_height),
+                columns.saturating_mul(16),
+                rows.saturating_mul(32),
             )
         } else {
             let width = if reported_width == 0 {
@@ -135,10 +128,10 @@ mod tests {
     }
 
     #[test]
-    fn zellij_outer_window_report_is_bounded_to_pane_cells() {
+    fn zellij_outer_window_pixels_do_not_change_pane_raster_size() {
         let size = TerminalSize::from_measurements(40, 20, 3840, 2160, true);
-        assert_eq!((size.width_px, size.height_px), (960, 960));
-        assert_eq!(size.cell_pixels(), (24, 48));
+        assert_eq!((size.width_px, size.height_px), (640, 640));
+        assert_eq!(size.cell_pixels(), (16, 32));
     }
 
     #[test]
