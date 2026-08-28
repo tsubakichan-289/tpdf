@@ -202,18 +202,26 @@ impl App {
         match (key.code, ctrl) {
             (KeyCode::Char('q'), false) | (KeyCode::Char('c'), true) => Action::Quit,
             (KeyCode::Char('j'), false)
+            | (KeyCode::Char('J'), false)
             | (KeyCode::Down, _)
-            | (KeyCode::PageDown, _)
-            | (KeyCode::Char('d'), true) => {
-                self.next_page();
-                Action::Render
-            }
+            | (KeyCode::Char('e'), true) => self.scroll_down_or_next_page(),
             (KeyCode::Char('k'), false)
+            | (KeyCode::Char('K'), false)
             | (KeyCode::Up, _)
-            | (KeyCode::PageUp, _)
-            | (KeyCode::Char('u'), true) => {
-                self.previous_page();
-                Action::Render
+            | (KeyCode::Char('y'), true) => self.scroll_up_or_previous_page(),
+            (KeyCode::PageDown, _) | (KeyCode::Char('d'), true) => {
+                if self.next_page() {
+                    Action::Render
+                } else {
+                    Action::None
+                }
+            }
+            (KeyCode::PageUp, _) | (KeyCode::Char('u'), true) => {
+                if self.previous_page() {
+                    Action::Render
+                } else {
+                    Action::None
+                }
             }
             (KeyCode::Char('g'), false) | (KeyCode::Home, _) => {
                 self.current_page = 0;
@@ -269,16 +277,6 @@ impl App {
                 self.dirty = true;
                 Action::Redraw
             }
-            (KeyCode::Char('J'), false) | (KeyCode::Char('e'), true) => {
-                self.offset_y = (self.offset_y + self.scroll_step_y()).min(self.max_offset_y());
-                self.dirty = true;
-                Action::Redraw
-            }
-            (KeyCode::Char('K'), false) | (KeyCode::Char('y'), true) => {
-                self.offset_y = self.offset_y.saturating_sub(self.scroll_step_y());
-                self.dirty = true;
-                Action::Redraw
-            }
             (KeyCode::Char('r'), false) | (KeyCode::Char('l'), true) => {
                 self.dirty = true;
                 Action::ForceRedraw
@@ -293,6 +291,32 @@ impl App {
 
     fn scroll_step_y(&self) -> u32 {
         (self.terminal.viewport_pixels().1 / 8).max(1)
+    }
+
+    fn scroll_down_or_next_page(&mut self) -> Action {
+        let maximum = self.max_offset_y();
+        if self.offset_y < maximum {
+            self.offset_y = (self.offset_y + self.scroll_step_y()).min(maximum);
+            self.dirty = true;
+            Action::Redraw
+        } else if self.next_page() {
+            Action::Render
+        } else {
+            Action::None
+        }
+    }
+
+    fn scroll_up_or_previous_page(&mut self) -> Action {
+        if self.offset_y > 0 {
+            self.offset_y = self.offset_y.saturating_sub(self.scroll_step_y());
+            self.dirty = true;
+            Action::Redraw
+        } else if self.previous_page() {
+            self.offset_y = self.max_offset_y();
+            Action::Render
+        } else {
+            Action::None
+        }
     }
 
     fn max_offset_x(&self) -> u32 {
@@ -443,11 +467,49 @@ mod tests {
     fn vertical_scroll_clamps_to_rendered_page() {
         let mut app = app();
         app.zoom = ZoomMode::FitWidth;
-        for _ in 0..100 {
+        while app.offset_y < app.max_offset_y() {
             app.handle_key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::CONTROL));
         }
         assert_eq!(app.offset_y, app.max_offset_y());
         assert!(app.offset_y > 0);
+        assert_eq!(app.current_page, 0);
+    }
+
+    #[test]
+    fn vertical_keys_cross_page_boundaries_continuously() {
+        let mut app = app();
+        app.zoom = ZoomMode::FitWidth;
+
+        assert_eq!(
+            app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)),
+            Action::Redraw
+        );
+        assert_eq!(app.current_page, 0);
+        app.offset_y = app.max_offset_y();
+        assert_eq!(
+            app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE)),
+            Action::Render
+        );
+        assert_eq!(app.current_page, 1);
+        assert_eq!(app.offset_y, 0);
+
+        assert_eq!(
+            app.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)),
+            Action::Render
+        );
+        assert_eq!(app.current_page, 0);
+        assert_eq!(app.offset_y, app.max_offset_y());
+    }
+
+    #[test]
+    fn fit_window_vertical_keys_remain_page_navigation() {
+        let mut app = app();
+        assert_eq!(app.max_offset_y(), 0);
+        assert_eq!(
+            app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE)),
+            Action::Render
+        );
+        assert_eq!(app.current_page, 1);
     }
 
     #[test]

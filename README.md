@@ -58,8 +58,10 @@ current page, clamping it only if the new document is shorter.
 
 | Key | Action |
 |---|---|
-| `j`, `Down`, `PageDown`, `Ctrl-d` | Next page |
-| `k`, `Up`, `PageUp`, `Ctrl-u` | Previous page |
+| `j`, `J`, `Down`, `Ctrl-e` | Scroll down; next page at bottom |
+| `k`, `K`, `Up`, `Ctrl-y` | Scroll up; previous page at top |
+| `PageDown`, `Ctrl-d` | Next page immediately |
+| `PageUp`, `Ctrl-u` | Previous page immediately |
 | `g`, `Home` | First page |
 | `G`, `End` | Last page |
 | `+`, `=` | Zoom in |
@@ -68,8 +70,6 @@ current page, clamping it only if the new document is shorter.
 | `w` | Fit page width to pane |
 | `h`, `Ctrl-h` | Scroll left |
 | `l` | Scroll right |
-| `J`, `Ctrl-e` | Scroll down |
-| `K`, `Ctrl-y` | Scroll up |
 | `r`, `Ctrl-l` | Force redraw |
 | `q`, `Ctrl-c` | Quit |
 
