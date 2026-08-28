@@ -187,7 +187,8 @@ pub fn encode_transmission(image_id: u32, bitmap: &Bitmap) -> Vec<u8> {
 }
 
 pub fn encode_delete(image_id: u32) -> Vec<u8> {
-    format!("\x1b_Ga=d,d=i,i={image_id},q=2\x1b\\").into_bytes()
+    // Capital I deletes placements and frees the terminal-side image data.
+    format!("\x1b_Ga=d,d=I,i={image_id},q=2\x1b\\").into_bytes()
 }
 
 fn encode_delete_placement(image_id: u32) -> Vec<u8> {
@@ -250,6 +251,6 @@ mod tests {
 
     #[test]
     fn delete_targets_only_our_image_id() {
-        assert_eq!(encode_delete(42), b"\x1b_Ga=d,d=i,i=42,q=2\x1b\\".to_vec());
+        assert_eq!(encode_delete(42), b"\x1b_Ga=d,d=I,i=42,q=2\x1b\\".to_vec());
     }
 }

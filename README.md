@@ -82,10 +82,12 @@ current page is rasterized again. Terminals not identifiable as Ghostty, Kitty,
 WezTerm, or zellij are rejected; the hidden `--force` flag is available for
 compatible multiplexers that do not preserve identifying environment variables.
 
-In zellij, reported pixel dimensions are bounded by the pane's cell dimensions
-and fixed-zoom renders are capped at twice the pane dimensions. Resize events are
-debounced. The current page has render priority; previous/next prefetch begins
-after 180 ms of input idle.
+In zellij, reported pixel dimensions are normalized against the pane's cell
+dimensions. When zellij does not report pixels, a HiDPI-oriented 16x32 pixel cell
+estimate is used. Fixed-zoom renders are capped at twice the pane dimensions.
+Resize events are debounced. The current page has render priority; previous/next
+prefetch begins after 180 ms of input idle. Replaced Kitty images are deleted with
+data-freeing semantics so terminal-side image storage does not accumulate.
 
 Set `TPDF_DEBUG_PERF=1` to print rasterization time, pixel format, raw/compressed/
 base64 byte counts, and Kitty write time to stderr:

@@ -32,31 +32,56 @@ impl TerminalSize {
 
     pub fn detect() -> std::io::Result<Self> {
         let window = terminal::window_size()?;
-        let width_px = if window.width == 0 {
-            window.columns.saturating_mul(8)
-        } else {
-            window.width
-        };
-        let height_px = if window.height == 0 {
-            window.rows.saturating_mul(16)
-        } else {
-            window.height
-        };
         let zellij = std::env::var_os("ZELLIJ").is_some()
             || std::env::var_os("ZELLIJ_SESSION_NAME").is_some();
+        Ok(Self::from_measurements(
+            window.columns,
+            window.rows,
+            window.width,
+            window.height,
+            zellij,
+        ))
+    }
+
+    fn from_measurements(
+        columns: u16,
+        rows: u16,
+        reported_width: u16,
+        reported_height: u16,
+        zellij: bool,
+    ) -> Self {
         if zellij {
-            // Zellij can expose outer-terminal pixels with pane-local cells.
-            // Bound the effective cell size to avoid a full-window HiDPI render.
-            let width_px = width_px.min(window.columns.saturating_mul(12));
-            let height_px = height_px.min(window.rows.saturating_mul(24));
-            Ok(Self::new_zellij(
-                window.columns,
-                window.rows,
-                width_px,
-                height_px,
-            ))
+            // Zellij may report zero pixels, or outer-window pixels with
+            // pane-local cells. Use a bounded HiDPI cell estimate rather than
+            // the visibly coarse 8x16 fallback.
+            let cell_width = if reported_width == 0 {
+                16
+            } else {
+                (reported_width / columns.max(1)).clamp(12, 24)
+            };
+            let cell_height = if reported_height == 0 {
+                32
+            } else {
+                (reported_height / rows.max(1)).clamp(24, 48)
+            };
+            Self::new_zellij(
+                columns,
+                rows,
+                columns.saturating_mul(cell_width),
+                rows.saturating_mul(cell_height),
+            )
         } else {
-            Ok(Self::new(window.columns, window.rows, width_px, height_px))
+            let width = if reported_width == 0 {
+                columns.saturating_mul(8)
+            } else {
+                reported_width
+            };
+            let height = if reported_height == 0 {
+                rows.saturating_mul(16)
+            } else {
+                reported_height
+            };
+            Self::new(columns, rows, width, height)
         }
     }
 
@@ -100,6 +125,20 @@ mod tests {
     fn zellij_caps_large_rasters_and_preserves_aspect_ratio() {
         let size = TerminalSize::new_zellij(80, 24, 960, 576);
         assert_eq!(size.cap_render_dimensions(4000, 2000), (1920, 960));
+    }
+
+    #[test]
+    fn zellij_missing_pixel_report_uses_hidpi_cell_estimate() {
+        let size = TerminalSize::from_measurements(80, 24, 0, 0, true);
+        assert_eq!((size.width_px, size.height_px), (1280, 768));
+        assert_eq!(size.cell_pixels(), (16, 32));
+    }
+
+    #[test]
+    fn zellij_outer_window_report_is_bounded_to_pane_cells() {
+        let size = TerminalSize::from_measurements(40, 20, 3840, 2160, true);
+        assert_eq!((size.width_px, size.height_px), (960, 960));
+        assert_eq!(size.cell_pixels(), (24, 48));
     }
 
     #[test]
