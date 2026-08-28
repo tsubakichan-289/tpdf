@@ -60,8 +60,8 @@ current page, clamping it only if the new document is shorter.
 |---|---|
 | `j`, `J`, `Down`, `Ctrl-e` | Scroll down; next page at bottom |
 | `k`, `K`, `Up`, `Ctrl-y` | Scroll up; previous page at top |
-| `PageDown`, `Ctrl-d` | Next page immediately |
-| `PageUp`, `Ctrl-u` | Previous page immediately |
+| `Right`, `PageDown`, `Ctrl-d` | Next page immediately |
+| `Left`, `PageUp`, `Ctrl-u` | Previous page immediately |
 | `g`, `Home` | First page |
 | `G`, `End` | Last page |
 | `+`, `=` | Zoom in (up to 400%) |

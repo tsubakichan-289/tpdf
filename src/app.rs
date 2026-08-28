@@ -209,14 +209,14 @@ impl App {
             | (KeyCode::Char('K'), false)
             | (KeyCode::Up, _)
             | (KeyCode::Char('y'), true) => self.scroll_up_or_previous_page(),
-            (KeyCode::PageDown, _) | (KeyCode::Char('d'), true) => {
+            (KeyCode::Right, _) | (KeyCode::PageDown, _) | (KeyCode::Char('d'), true) => {
                 if self.next_page() {
                     Action::Render
                 } else {
                     Action::None
                 }
             }
-            (KeyCode::PageUp, _) | (KeyCode::Char('u'), true) => {
+            (KeyCode::Left, _) | (KeyCode::PageUp, _) | (KeyCode::Char('u'), true) => {
                 if self.previous_page() {
                     Action::Render
                 } else {
@@ -523,6 +523,32 @@ mod tests {
             Action::Render
         );
         assert_eq!(app.current_page, 1);
+    }
+
+    #[test]
+    fn horizontal_arrows_move_pages_immediately() {
+        let mut app = app();
+        app.zoom = ZoomMode::Fixed(200);
+        app.offset_x = 100;
+        app.offset_y = 100;
+
+        assert_eq!(
+            app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE)),
+            Action::Render
+        );
+        assert_eq!(app.current_page, 1);
+        assert_eq!((app.offset_x, app.offset_y), (0, 0));
+
+        assert_eq!(
+            app.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE)),
+            Action::Render
+        );
+        assert_eq!(app.current_page, 0);
+        assert_eq!((app.offset_x, app.offset_y), (0, 0));
+        assert_eq!(
+            app.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE)),
+            Action::None
+        );
     }
 
     #[test]
