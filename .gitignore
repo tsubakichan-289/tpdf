@@ -6,3 +6,7 @@
 *.dll
 *.tgz
 
+
+/.cargo-home/
+
+/.direnv/

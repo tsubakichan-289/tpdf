@@ -5,9 +5,36 @@ rasterizes each page in a worker thread; `tpdf` sends a zlib-compressed RGB or
 RGBA bitmap to the terminal with the Kitty graphics protocol. It does not open a
 GUI window, run `pdftoppm`, or create temporary PNG files.
 
+## 開発環境
+
+開発には `nix develop` を使用します。ツールと依存ライブラリは `flake.nix`、
+バージョンは `flake.lock` で管理します。以下の Cargo コマンドは開発シェル内で実行してください。
+
+```sh
+nix develop
+# 開発シェル内
+cargo check
+```
+
+Git 管理の場合は `git add flake.nix flake.lock` で追跡対象にすると、
+`nix develop` / `nix develop -c cargo test` をそのまま使えます。
+Nix の `nix-command` / `flakes` を有効にしてください。
+
 ## Install
 
-PDFium is a runtime dependency and is not bundled in the executable. Download the
+With Nix, build and run the viewer including its PDFium runtime:
+
+```sh
+nix run . -- document.pdf
+nix run . -- --help
+```
+
+`nix develop` opens the development shell; `nix run` launches the viewer.
+The first run downloads dependencies and builds the application.
+
+During development, `nix develop` supplies PDFium and Typst and sets the library
+search path. For a standalone installation outside the dev shell, PDFium is a
+runtime dependency and is not bundled in the executable. Download the
 matching shared library from
 [bblanchon/pdfium-binaries](https://github.com/bblanchon/pdfium-binaries/releases),
 then either:
